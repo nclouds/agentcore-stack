@@ -304,9 +304,9 @@ function handler(event) {
     // record name + alias target as CfnOutputs so an operator can wire the
     // record by hand. The custom domain + cert stay attached to the
     // distribution either way, so it serves `config.domainName` over TLS.
-    if (config.domainName && config.manageDnsRecords) {
+    if (config.domainName && config.manageDnsRecords && config.infrastructureHostedZoneDomain) {
       const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
-        domainName: config.domainName,
+        domainName: config.infrastructureHostedZoneDomain,
       });
 
       new route53.ARecord(this, 'FrontendARecord', {
