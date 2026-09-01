@@ -88,6 +88,7 @@ jobs:
       CDK_COGNITO_CALLBACK_URLS: ${{ vars.CDK_COGNITO_CALLBACK_URLS }}
       CDK_COGNITO_LOGOUT_URLS: ${{ vars.CDK_COGNITO_LOGOUT_URLS }}
       CDK_COGNITO_SUPPORTED_IDPS: ${{ vars.CDK_COGNITO_SUPPORTED_IDPS }}
+      CDK_ARTIFACTS_DOMAIN: ${{ vars.CDK_ARTIFACTS_DOMAIN }}
       CDK_ARTIFACTS_CERTIFICATE_ARN: ${{ vars.CDK_ARTIFACTS_CERTIFICATE_ARN }}
       # Extra origins allowed to frame the artifacts iframe via CSP
       # frame-ancestors (beyond the deployed SPA origin) — e.g.
@@ -99,6 +100,7 @@ jobs:
       # cert ARN the construct silently falls back to the CloudFront default
       # domain and creates no Route53 ALIAS — the SPA then frames a
       # nonexistent host and MCP Apps fail to load. Cert MUST be in us-east-1.
+      CDK_MCP_SANDBOX_DOMAIN: ${{ vars.CDK_MCP_SANDBOX_DOMAIN }}
       CDK_MCP_SANDBOX_CERTIFICATE_ARN: ${{ vars.CDK_MCP_SANDBOX_CERTIFICATE_ARN }}
       CDK_MCP_SANDBOX_EXTRA_FRAME_ANCESTORS: ${{ vars.CDK_MCP_SANDBOX_EXTRA_FRAME_ANCESTORS }}
       # KB sync scheduled re-index. Default ON with a kill switch: CDK enables

@@ -80,11 +80,15 @@ export interface AppConfig {
  * MCP_APPS_HOST_ENABLED, flipped on in PR #7.
  */
 export interface McpSandboxConfig {
-  // ACM certificate ARN for the proxy origin (mcp-sandbox.{domainName}).
+  // ACM certificate ARN for the proxy origin ({subdomainPrefix}.{domainName}).
   // MUST be in us-east-1 — CloudFront requires its viewer certs there.
   // Without it the stack still synthesizes on the CloudFront default
   // domain so unit/synth tests and domain-less local stacks work.
   certificateArn?: string;
+  // Custom full domain for the MCP Apps sandbox-proxy CloudFront origin.
+  // Overrides the default `mcp-sandbox.{domainName}` behavior.
+  // Set CDK_MCP_SANDBOX_DOMAIN to override — e.g. 'mcp-sandbox-dev.example.com'.
+  customDomain?: string;
   // Extra origins (beyond https://{domainName}) allowed to embed the proxy
   // iframe via CSP frame-ancestors — e.g. http://localhost:4200 for a local
   // SPA pointed at this deployment. Empty on prod.
@@ -92,10 +96,14 @@ export interface McpSandboxConfig {
 }
 
 export interface ArtifactsConfig {
-  // ACM certificate ARN for the artifact iframe origin (artifacts.{domainName}).
+  // ACM certificate ARN for the artifact iframe origin ({subdomainPrefix}.{domainName}).
   // MUST be in us-east-1 — CloudFront requires its certs there. Validation
   // surfaces a clear error if the arn is in another region.
   certificateArn?: string;
+  // Custom full domain for the artifact iframe CloudFront origin.
+  // Overrides the default `artifacts.{domainName}` behavior.
+  // Set CDK_ARTIFACTS_DOMAIN to override — e.g. 'artifacts-dev.example.com'.
+  customDomain?: string;
   // Soft-delete retention window for objects tagged `lifecycle-class=deleted`.
   retentionDays: number;
   // Extra origins (beyond https://{domainName}) allowed to embed artifact
@@ -530,6 +538,7 @@ export function loadConfig(scope: cdk.App): AppConfig {
     },
     artifacts: {
       certificateArn: process.env.CDK_ARTIFACTS_CERTIFICATE_ARN || scope.node.tryGetContext('artifacts')?.certificateArn,
+      customDomain: process.env.CDK_ARTIFACTS_DOMAIN || scope.node.tryGetContext('artifacts')?.customDomain,
       retentionDays: parseIntEnv(process.env.CDK_ARTIFACTS_RETENTION_DAYS) ?? scope.node.tryGetContext('artifacts')?.retentionDays ?? 90,
       extraFrameAncestors: process.env.CDK_ARTIFACTS_EXTRA_FRAME_ANCESTORS?.split(',')
         .map((s) => s.trim()).filter(Boolean)
@@ -538,6 +547,7 @@ export function loadConfig(scope: cdk.App): AppConfig {
     },
     mcpSandbox: {
       certificateArn: process.env.CDK_MCP_SANDBOX_CERTIFICATE_ARN || scope.node.tryGetContext('mcpSandbox')?.certificateArn,
+      customDomain: process.env.CDK_MCP_SANDBOX_DOMAIN || scope.node.tryGetContext('mcpSandbox')?.customDomain,
       extraFrameAncestors: process.env.CDK_MCP_SANDBOX_EXTRA_FRAME_ANCESTORS?.split(',')
         .map((s) => s.trim()).filter(Boolean)
         || scope.node.tryGetContext('mcpSandbox')?.extraFrameAncestors

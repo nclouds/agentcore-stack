@@ -79,7 +79,7 @@ export class ArtifactsDistributionConstruct extends Construct {
     const domainName = config.domainName;
     const certificateArn = config.artifacts.certificateArn;
     if (domainName && !certificateArn) {
-      const artifactsSubdomainForError = `artifacts.${domainName}`;
+      const artifactsSubdomainForError = config.artifacts.customDomain || `artifacts.${domainName}`;
       throw new Error(
         `Artifacts iframe origin requires an ACM certificate when a domain is configured. ` +
           `domainName="${domainName}" is set but config.artifacts.certificateArn is empty. ` +
@@ -96,9 +96,9 @@ export class ArtifactsDistributionConstruct extends Construct {
     // stacks — matching McpSandboxDistributionConstruct, instead of crashing
     // on `fromCertificateArn(undefined)`.
     const useCustomDomain = Boolean(domainName && certificateArn);
-    const artifactsSubdomain = domainName
+    const artifactsSubdomain = config.artifacts.customDomain || (domainName
       ? `artifacts.${domainName}`
-      : undefined;
+      : undefined);
     const cspDirectives = [
       `default-src 'none'`,
       `script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://esm.sh https://cdn.jsdelivr.net https://unpkg.com`,

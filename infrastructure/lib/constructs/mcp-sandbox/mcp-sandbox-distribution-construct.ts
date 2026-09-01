@@ -131,9 +131,9 @@ export class McpSandboxDistributionConstruct extends Construct {
 
     const domainName = config.domainName;
     const certificateArn = config.mcpSandbox.certificateArn;
-    const proxySubdomain = domainName
+    const proxySubdomain = config.mcpSandbox.customDomain || (domainName
       ? `${MCP_SANDBOX_SUBDOMAIN_LABEL}.${domainName}`
-      : undefined;
+      : undefined);
 
     // Fail loudly on the dangerous middle case: a real domain is configured
     // but no cert. Without this the construct would silently fall back to the
