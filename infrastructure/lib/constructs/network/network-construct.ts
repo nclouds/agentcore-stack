@@ -32,6 +32,8 @@ export interface NetworkConstructProps {
  */
 export class NetworkConstruct extends Construct {
   public readonly vpc: ec2.Vpc;
+  public readonly transitGatewayAttachment?: ec2.CfnTransitGatewayAttachment;
+  public readonly transitGatewayRoutes: ec2.CfnRoute[] = [];
 
   constructor(scope: Construct, id: string, props: NetworkConstructProps) {
     super(scope, id);
@@ -59,9 +61,60 @@ export class NetworkConstruct extends Construct {
       enableDnsSupport: true,
     });
 
-    // Export VPC ID to SSM for cross-stack references
+    if (config.transitGatewayId) {
+      // Create Transit Gateway attachment placing ENIs in the private subnets
+      this.transitGatewayAttachment = new ec2.CfnTransitGatewayAttachment(
+        this,
+        'TransitGatewayAttachment',
+        {
+          transitGatewayId: config.transitGatewayId,
+          vpcId: this.vpc.vpcId,
+          subnetIds: this.vpc.privateSubnets.map((s) => s.subnetId),
+          tags: [
+            {
+              key: 'Name',
+              value: getResourceName(config, 'tgw-attachment'),
+            },
+          ],
+        }
+      );
 
-    // Export VPC CIDR to SSM
+      // Add routes to Transit Gateway in all private and public subnet route tables
+      if (config.transitGatewayRouteCidrs && config.transitGatewayRouteCidrs.length > 0) {
+        const targetRouteTables: { prefix: string; routeTableId: string }[] = [];
+        const seenRouteTables = new Set<string>();
 
+        this.vpc.privateSubnets.forEach((s, idx) => {
+          if (!seenRouteTables.has(s.routeTable.routeTableId)) {
+            seenRouteTables.add(s.routeTable.routeTableId);
+            targetRouteTables.push({ prefix: `Private${idx + 1}`, routeTableId: s.routeTable.routeTableId });
+          }
+        });
+
+        this.vpc.publicSubnets.forEach((s, idx) => {
+          if (!seenRouteTables.has(s.routeTable.routeTableId)) {
+            seenRouteTables.add(s.routeTable.routeTableId);
+            targetRouteTables.push({ prefix: `Public${idx + 1}`, routeTableId: s.routeTable.routeTableId });
+          }
+        });
+
+        targetRouteTables.forEach(({ prefix, routeTableId }) => {
+          config.transitGatewayRouteCidrs!.forEach((cidr) => {
+            const sanitizedCidr = cidr.replace(/[^a-zA-Z0-9]/g, '');
+            const route = new ec2.CfnRoute(
+              this,
+              `RouteToTgw${prefix}Cidr${sanitizedCidr}`,
+              {
+                routeTableId,
+                destinationCidrBlock: cidr,
+                transitGatewayId: config.transitGatewayId,
+              }
+            );
+            route.addResourceDependency(this.transitGatewayAttachment!);
+            this.transitGatewayRoutes.push(route);
+          });
+        });
+      }
+    }
   }
 }

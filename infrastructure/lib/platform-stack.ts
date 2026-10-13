@@ -132,6 +132,7 @@ export class PlatformStack extends cdk.Stack {
   public readonly albListener: elbv2.IApplicationListener;
   public readonly albSecurityGroup: ec2.ISecurityGroup;
   public readonly ecsCluster: ecs.ICluster;
+  public readonly transitGatewayAttachment?: ec2.CfnTransitGatewayAttachment;
 
   // ── Identity / crypto
   public readonly authSecret: secretsmanager.ISecret;
@@ -256,6 +257,15 @@ export class PlatformStack extends cdk.Stack {
     // ============================================================
     const network = new NetworkConstruct(this, 'Network', { config });
     this.vpc = network.vpc;
+    this.transitGatewayAttachment = network.transitGatewayAttachment;
+
+    if (network.transitGatewayAttachment) {
+      new cdk.CfnOutput(this, 'TransitGatewayAttachmentId', {
+        value: network.transitGatewayAttachment.ref,
+        description: 'Transit Gateway Attachment ID for agentcorevpc',
+        exportName: `${config.projectPrefix}-tgw-attachment-id`,
+      });
+    }
 
     const alb = new AlbConstruct(this, 'Alb', { config, vpc: this.vpc });
     this.alb = alb.alb;

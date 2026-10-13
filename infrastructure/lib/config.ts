@@ -19,6 +19,8 @@ export interface AppConfig {
   production: boolean; // Production environment flag (default: true)
   retainDataOnDelete: boolean;
   vpcCidr: string;
+  transitGatewayId?: string; // Optional AWS Transit Gateway ID (e.g., tgw-0b86b660bfb0073c6)
+  transitGatewayRouteCidrs?: string[]; // Optional CIDRs in networking hub to route to TGW (e.g., ['10.130.1.0/24', '10.130.2.0/24'])
   corsOrigins: string; // Top-level shared CORS origins (comma-separated), used as default for all sections
   domainName?: string; // Primary domain name for the application (used for frontend, CORS, etc.)
   infrastructureHostedZoneDomain?: string;
@@ -417,6 +419,13 @@ export function loadConfig(scope: cdk.App): AppConfig {
     production: parseBooleanEnv(process.env.CDK_PRODUCTION) ?? scope.node.tryGetContext('production'),
     retainDataOnDelete: parseBooleanEnv(process.env.CDK_RETAIN_DATA_ON_DELETE) ?? scope.node.tryGetContext('retainDataOnDelete'),
     vpcCidr: scope.node.tryGetContext('vpcCidr'),
+    transitGatewayId: (() => {
+      const val = process.env.CDK_TRANSIT_GATEWAY_ID || scope.node.tryGetContext('transitGatewayId');
+      return typeof val === 'string' && val.trim() !== '' ? val.trim() : undefined;
+    })(),
+    transitGatewayRouteCidrs:
+      parseStringArrayEnv(process.env.CDK_TRANSIT_GATEWAY_ROUTE_CIDRS)
+      ?? parseStringArrayEnv(scope.node.tryGetContext('transitGatewayRouteCidrs')),
     corsOrigins,
     domainName,
     infrastructureHostedZoneDomain: process.env.CDK_HOSTED_ZONE_DOMAIN || scope.node.tryGetContext('infrastructureHostedZoneDomain'),
@@ -444,7 +453,7 @@ export function loadConfig(scope: cdk.App): AppConfig {
         || 8,
     },
     frontend: {
-      certificateArn: process.env.CDK_FRONTEND_CERTIFICATE_ARN || scope.node.tryGetContext('frontend').certificateArn,
+      certificateArn: process.env.CDK_FRONTEND_CERTIFICATE_ARN || scope.node.tryGetContext('frontend')?.certificateArn,
       bucketName: process.env.CDK_FRONTEND_BUCKET_NAME || scope.node.tryGetContext('frontend')?.bucketName,
       cloudFrontPriceClass: process.env.CDK_FRONTEND_CLOUDFRONT_PRICE_CLASS || scope.node.tryGetContext('frontend')?.cloudFrontPriceClass,
       additionalCorsOrigins: process.env.CDK_FRONTEND_CORS_ORIGINS || scope.node.tryGetContext('frontend')?.additionalCorsOrigins,
@@ -624,6 +633,10 @@ export function loadConfig(scope: cdk.App): AppConfig {
   console.log(`   Retain Data on Delete: ${config.retainDataOnDelete}`);
   console.log(`   Manage DNS Records: ${config.manageDnsRecords}`);
   console.log(`   App Version: ${config.appVersion}`);
+  if (config.transitGatewayId) {
+    console.log(`   Transit Gateway ID: ${config.transitGatewayId}`);
+    console.log(`   TGW Route CIDRs: ${config.transitGatewayRouteCidrs?.join(', ') || 'none'}`);
+  }
 
   // Validate configuration
   validateConfig(config);
@@ -710,6 +723,50 @@ export function parseJsonRecordEnv(
 }
 
 /**
+ * Parse an array of strings from an environment variable or context value.
+ *
+ * Supports:
+ * - JSON array format: e.g. '["10.130.1.0/24", "10.130.2.0/24"]'
+ * - Comma-separated format: e.g. '10.130.1.0/24, 10.130.2.0/24'
+ * - Native string array: e.g. ['10.130.1.0/24', '10.130.2.0/24']
+ * - Single CIDR string: e.g. '10.130.0.0/16'
+ *
+ * Returns undefined if unset, empty, or invalid.
+ */
+export function parseStringArrayEnv(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    const items = value.map((s) => String(s).trim()).filter(Boolean);
+    return items.length > 0 ? items : undefined;
+  }
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        const items = parsed.map((s) => String(s).trim()).filter(Boolean);
+        return items.length > 0 ? items : undefined;
+      }
+    } catch {
+      // Fall through to comma-separated split
+    }
+  }
+  const items = trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
+/**
  * Validate AWS account ID format
  * @param account The AWS account ID to validate
  * @throws Error if the account ID is invalid
@@ -774,6 +831,28 @@ function validateConfig(config: AppConfig): void {
   const cidrPattern = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
   if (!cidrPattern.test(config.vpcCidr)) {
     throw new Error(`Invalid VPC CIDR format: ${config.vpcCidr}`);
+  }
+
+  // Validate Transit Gateway configuration
+  if (config.transitGatewayId) {
+    if (!/^tgw-[a-zA-Z0-9]+$/.test(config.transitGatewayId)) {
+      throw new Error(
+        `Invalid transitGatewayId format: "${config.transitGatewayId}". Expected format like "tgw-0b86b660bfb0073c6".`
+      );
+    }
+  }
+
+  if (config.transitGatewayRouteCidrs && config.transitGatewayRouteCidrs.length > 0) {
+    if (!config.transitGatewayId) {
+      throw new Error(
+        'transitGatewayRouteCidrs was provided without transitGatewayId. A Transit Gateway ID must be specified.'
+      );
+    }
+    for (const cidr of config.transitGatewayRouteCidrs) {
+      if (!cidrPattern.test(cidr)) {
+        throw new Error(`Invalid transitGatewayRouteCidrs CIDR format: "${cidr}"`);
+      }
+    }
   }
 
   // Validate Gateway inbound auth selection. A typo here would otherwise

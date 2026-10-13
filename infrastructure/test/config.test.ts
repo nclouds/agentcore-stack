@@ -1,5 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
-import { loadConfig, AppConfig } from '../lib/config';
+import { loadConfig, AppConfig, parseStringArrayEnv } from '../lib/config';
 
 /**
  * Unit Tests for RAG Ingestion Configuration
@@ -1076,6 +1076,82 @@ describe('RAG Ingestion Configuration', () => {
       expect(loadConfig(app).mcpIdentity.tokenEnrichment?.accessTokenClaims).toEqual({
         'ctx:claim': 'custom:from_context',
       });
+    });
+  });
+
+  describe('parseStringArrayEnv', () => {
+    test('returns undefined for undefined, null, or empty string', () => {
+      expect(parseStringArrayEnv(undefined)).toBeUndefined();
+      expect(parseStringArrayEnv(null)).toBeUndefined();
+      expect(parseStringArrayEnv('')).toBeUndefined();
+      expect(parseStringArrayEnv('   ')).toBeUndefined();
+    });
+
+    test('parses JSON string array', () => {
+      expect(parseStringArrayEnv('["10.130.1.0/24", "10.130.2.0/24"]')).toEqual([
+        '10.130.1.0/24',
+        '10.130.2.0/24',
+      ]);
+      expect(parseStringArrayEnv('["10.130.0.0/16"]')).toEqual(['10.130.0.0/16']);
+    });
+
+    test('parses comma-separated string', () => {
+      expect(parseStringArrayEnv('10.130.1.0/24, 10.130.2.0/24')).toEqual([
+        '10.130.1.0/24',
+        '10.130.2.0/24',
+      ]);
+      expect(parseStringArrayEnv('10.130.0.0/16')).toEqual(['10.130.0.0/16']);
+    });
+
+    test('handles native string array', () => {
+      expect(parseStringArrayEnv(['10.130.1.0/24', '10.130.2.0/24'])).toEqual([
+        '10.130.1.0/24',
+        '10.130.2.0/24',
+      ]);
+      expect(parseStringArrayEnv([])).toBeUndefined();
+    });
+  });
+
+  describe('Transit Gateway Configuration', () => {
+    beforeEach(() => {
+      delete process.env.CDK_TRANSIT_GATEWAY_ID;
+      delete process.env.CDK_TRANSIT_GATEWAY_ROUTE_CIDRS;
+    });
+
+    afterEach(() => {
+      delete process.env.CDK_TRANSIT_GATEWAY_ID;
+      delete process.env.CDK_TRANSIT_GATEWAY_ROUTE_CIDRS;
+    });
+
+    test('loads transitGatewayId and routes from environment variables', () => {
+      process.env.CDK_TRANSIT_GATEWAY_ID = 'tgw-0b86b660bfb0073c6';
+      process.env.CDK_TRANSIT_GATEWAY_ROUTE_CIDRS = '["10.130.1.0/24", "10.130.2.0/24"]';
+
+      const loaded = loadConfig(app);
+      expect(loaded.transitGatewayId).toBe('tgw-0b86b660bfb0073c6');
+      expect(loaded.transitGatewayRouteCidrs).toEqual(['10.130.1.0/24', '10.130.2.0/24']);
+    });
+
+    test('loads transitGatewayId and routes from CDK context', () => {
+      app.node.setContext('transitGatewayId', 'tgw-0b86b660bfb0073c6');
+      app.node.setContext('transitGatewayRouteCidrs', ['10.130.0.0/16']);
+
+      const loaded = loadConfig(app);
+      expect(loaded.transitGatewayId).toBe('tgw-0b86b660bfb0073c6');
+      expect(loaded.transitGatewayRouteCidrs).toEqual(['10.130.0.0/16']);
+    });
+
+    test('throws error on invalid transitGatewayId format', () => {
+      process.env.CDK_TRANSIT_GATEWAY_ID = 'invalid-tgw-id';
+
+      expect(() => loadConfig(app)).toThrow('Invalid transitGatewayId format');
+    });
+
+    test('throws error on invalid CIDR in transitGatewayRouteCidrs', () => {
+      process.env.CDK_TRANSIT_GATEWAY_ID = 'tgw-0b86b660bfb0073c6';
+      process.env.CDK_TRANSIT_GATEWAY_ROUTE_CIDRS = 'not-a-cidr';
+
+      expect(() => loadConfig(app)).toThrow('Invalid transitGatewayRouteCidrs CIDR format');
     });
   });
 });

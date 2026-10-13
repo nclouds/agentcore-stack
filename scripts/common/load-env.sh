@@ -97,6 +97,14 @@ build_cdk_context_params() {
     if [ -n "${CDK_VPC_CIDR:-}" ]; then
         context_params="${context_params} --context vpcCidr=\"${CDK_VPC_CIDR}\""
     fi
+
+    if [ -n "${CDK_TRANSIT_GATEWAY_ID:-}" ]; then
+        context_params="${context_params} --context transitGatewayId=\"${CDK_TRANSIT_GATEWAY_ID}\""
+    fi
+
+    if [ -n "${CDK_TRANSIT_GATEWAY_ROUTE_CIDRS:-}" ]; then
+        context_params="${context_params} --context transitGatewayRouteCidrs=\"${CDK_TRANSIT_GATEWAY_ROUTE_CIDRS}\""
+    fi
     
     if [ -n "${CDK_HOSTED_ZONE_DOMAIN:-}" ]; then
         context_params="${context_params} --context infrastructureHostedZoneDomain=\"${CDK_HOSTED_ZONE_DOMAIN}\""
@@ -239,6 +247,8 @@ export CDK_PROJECT_PREFIX="${CDK_PROJECT_PREFIX:-$(get_json_value "projectPrefix
 export CDK_AWS_REGION="${CDK_AWS_REGION:-$(get_json_value "awsRegion" "${CONTEXT_FILE}")}"
 export CDK_PRODUCTION="${CDK_PRODUCTION:-$(get_json_value "production" "${CONTEXT_FILE}")}"
 export CDK_VPC_CIDR="${CDK_VPC_CIDR:-$(get_json_value "vpcCidr" "${CONTEXT_FILE}")}"
+export CDK_TRANSIT_GATEWAY_ID="${CDK_TRANSIT_GATEWAY_ID:-$(get_json_value "transitGatewayId" "${CONTEXT_FILE}")}"
+export CDK_TRANSIT_GATEWAY_ROUTE_CIDRS="${CDK_TRANSIT_GATEWAY_ROUTE_CIDRS:-$(get_json_value "transitGatewayRouteCidrs" "${CONTEXT_FILE}")}"
 export CDK_HOSTED_ZONE_DOMAIN="${CDK_HOSTED_ZONE_DOMAIN:-$(get_json_value "infrastructureHostedZoneDomain" "${CONTEXT_FILE}")}"
 export CDK_ALB_SUBDOMAIN="${CDK_ALB_SUBDOMAIN:-$(get_json_value "albSubdomain" "${CONTEXT_FILE}")}"
 export CDK_CERTIFICATE_ARN="${CDK_CERTIFICATE_ARN:-$(get_json_value "certificateArn" "${CONTEXT_FILE}")}"
@@ -345,6 +355,10 @@ if [ "${LOAD_ENV_QUIET:-false}" != "true" ]; then
     log_config "  App Version:    ${CDK_APP_VERSION}"
     log_config "  Production:     ${CDK_PRODUCTION:-true}"
     log_config "  VPC CIDR:       ${CDK_VPC_CIDR:-<not set>}"
+    if [ -n "${CDK_TRANSIT_GATEWAY_ID:-}" ]; then
+        log_config "  Transit Gateway:${CDK_TRANSIT_GATEWAY_ID}"
+        log_config "  TGW CIDRs:      ${CDK_TRANSIT_GATEWAY_ROUTE_CIDRS:-<none>}"
+    fi
     log_config "  Retain Data:    ${CDK_RETAIN_DATA_ON_DELETE}"
     log_config "  Manage DNS:     ${CDK_MANAGE_DNS_RECORDS:-true}"
     log_config "  CORS Origins:   ${CDK_CORS_ORIGINS}"

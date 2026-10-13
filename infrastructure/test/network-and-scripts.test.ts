@@ -59,6 +59,44 @@ describe('NetworkConstruct — detailed', () => {
 
   it('publishes public subnet IDs to SSM', () => {
   });
+
+  it('does not create TGW attachment when transitGatewayId is unset', () => {
+    t.resourceCountIs('AWS::EC2::TransitGatewayAttachment', 0);
+  });
+
+  describe('with Transit Gateway configured', () => {
+    let tgwTemplate: Template;
+    beforeAll(() => {
+      const stack = testStack();
+      const tgwConfig = createMockConfig({
+        transitGatewayId: 'tgw-0b86b660bfb0073c6',
+        transitGatewayRouteCidrs: ['10.130.1.0/24', '10.130.2.0/24'],
+      });
+      new NetworkConstruct(stack, 'NetWithTgw', { config: tgwConfig });
+      tgwTemplate = Template.fromStack(stack);
+    });
+
+    it('creates Transit Gateway Attachment with private subnets', () => {
+      tgwTemplate.resourceCountIs('AWS::EC2::TransitGatewayAttachment', 1);
+      tgwTemplate.hasResourceProperties('AWS::EC2::TransitGatewayAttachment', {
+        TransitGatewayId: 'tgw-0b86b660bfb0073c6',
+        Tags: Match.arrayWith([
+          Match.objectLike({ Key: 'Name', Value: 'test-project-tgw-attachment' }),
+        ]),
+      });
+    });
+
+    it('creates routes to TGW for each configured CIDR across route tables', () => {
+      tgwTemplate.hasResourceProperties('AWS::EC2::Route', {
+        DestinationCidrBlock: '10.130.1.0/24',
+        TransitGatewayId: 'tgw-0b86b660bfb0073c6',
+      });
+      tgwTemplate.hasResourceProperties('AWS::EC2::Route', {
+        DestinationCidrBlock: '10.130.2.0/24',
+        TransitGatewayId: 'tgw-0b86b660bfb0073c6',
+      });
+    });
+  });
 });
 
 describe('AlbConstruct — detailed', () => {

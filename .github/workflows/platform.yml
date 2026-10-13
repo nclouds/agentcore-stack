@@ -58,6 +58,8 @@ jobs:
       CDK_DOMAIN_NAME: ${{ vars.CDK_DOMAIN_NAME }}
       CDK_CORS_ORIGINS: ${{ vars.CDK_CORS_ORIGINS }}
       CDK_VPC_CIDR: ${{ vars.CDK_VPC_CIDR }}
+      CDK_TRANSIT_GATEWAY_ID: ${{ vars.CDK_TRANSIT_GATEWAY_ID }}
+      CDK_TRANSIT_GATEWAY_ROUTE_CIDRS: ${{ vars.CDK_TRANSIT_GATEWAY_ROUTE_CIDRS }}
       CDK_ALB_SUBDOMAIN: ${{ vars.CDK_ALB_SUBDOMAIN }}
       CDK_CERTIFICATE_ARN: ${{ vars.CDK_CERTIFICATE_ARN }}
       # Shared us-east-1 CloudFront cert (wildcard covering {domain} + *.{domain}).

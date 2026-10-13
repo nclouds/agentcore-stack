@@ -71,6 +71,8 @@ GitHub provides two mechanisms for storing configuration values:
 | CDK_PROJECT_PREFIX | Variable | Yes | `agentcore` | All | Prefix for all resource names (e.g., 'mycompany-agentcore') |
 | CDK_RAG_CORS_ORIGINS | Variable | No | None | RAG Ingestion | Additional CORS origins for the RAG documents S3 bucket only (appended to global CORS origins) |
 | CDK_RETAIN_DATA_ON_DELETE | Variable | No | `false` | All | Retain data resources (DynamoDB, S3, Secrets) on stack deletion |
+| CDK_TRANSIT_GATEWAY_ID | Variable | No | None | Platform | Transit Gateway ID for cross-account VPC attachment (e.g. `tgw-0b86b660bfb0073c6`). Must be shared via AWS RAM. |
+| CDK_TRANSIT_GATEWAY_ROUTE_CIDRS | Variable | No | None | Platform | CIDR blocks to route to the Transit Gateway in subnet route tables (JSON array e.g. `["10.130.1.0/24", "10.130.2.0/24"]` or `["10.130.0.0/16"]`, or comma-separated). |
 | CDK_VPC_CIDR | Variable | No | `10.0.0.0/16` | Platform | CIDR block for VPC network |
 | ENV_INFERENCE_API_CORS_ORIGINS | Variable | No | None | Inference API | _(Deprecated — use CDK_INFERENCE_API_CORS_ORIGINS instead)_ |
 | ENV_INFERENCE_API_LOG_LEVEL | Variable | No | `INFO` | Inference API | Log level for runtime container (DEBUG, INFO, WARNING, ERROR) |
