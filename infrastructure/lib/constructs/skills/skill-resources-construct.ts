@@ -52,7 +52,7 @@ export class SkillResourcesConstruct extends Construct {
     const { config } = props;
 
     this.bucket = new s3.Bucket(this, 'SkillResourcesBucket', {
-      bucketName: getResourceName(config, 'skill-resources'),
+      bucketName: getResourceName(config, 'skill-resources', config.awsAccount),
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
