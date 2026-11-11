@@ -13,10 +13,13 @@ OAuth Support:
     gates execution.
 """
 
+import functools
 import logging
 import re
 from typing import Any, Callable, Iterator, Optional, List, Set
 from urllib.parse import urlparse
+
+import boto3
 
 from mcp.client.streamable_http import streamablehttp_client
 from strands.tools.mcp import MCPClient
@@ -42,6 +45,16 @@ from agents.main_agent.integrations.oauth_auth import (
 from apis.shared.timestamps import to_iso
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=32)
+def _read_static_bearer_token(secret_arn: str) -> str:
+    """Read a static MCP bearer token from Secrets Manager.
+
+    Cached for the life of the process (Secrets Manager is rate-limited and
+    billed per call); a rotated token is picked up on the next cold start.
+    """
+    return boto3.client("secretsmanager").get_secret_value(SecretId=secret_arn)["SecretString"].strip()
 
 
 def _aws_hostname(url: str) -> str:
@@ -272,9 +285,13 @@ def create_external_mcp_client(
             # TODO: Implement API key auth via custom httpx Auth class
 
         elif config.auth_type == MCPAuthType.BEARER_TOKEN or config.auth_type == "bearer-token":
-            # Static bearer token (not user-specific OAuth)
-            logger.warning("Static bearer token authentication not yet implemented for external MCP")
-            # TODO: Implement static bearer token auth
+            # Static bearer token (not user-specific OAuth), read from the
+            # Secrets Manager secret named by secret_arn (plain-string secret).
+            if not config.secret_arn:
+                logger.warning("bearer-token auth for tool %s has no secret_arn; refusing to connect unauthenticated", tool_id)
+                return None
+            auth_handlers.append(create_oauth_bearer_auth(token=_read_static_bearer_token(config.secret_arn)))
+            logger.debug("  Using static bearer token from Secrets Manager")
 
         # Combine auth handlers
         auth = None

@@ -902,3 +902,29 @@ class TestOAuthPreflightRecovery:
             self.PROVIDER: "https://consent.example/b"
         }
         assert integration.take_pending_consents("carol") == {}
+
+
+class TestStaticBearerToken:
+    """bearer-token auth reads a static token from Secrets Manager."""
+
+    def test_bearer_token_sent_from_secret(self):
+        from agents.main_agent.integrations import external_mcp_client as mod
+        from apis.shared.tools.models import MCPServerConfig
+
+        config = MCPServerConfig(
+            server_url="https://n8n.example.com/mcp/x",
+            auth_type="bearer-token",
+            secret_arn="arn:aws:secretsmanager:us-west-2:1:secret:t",
+        )
+        with patch.object(mod, "_read_static_bearer_token", return_value="tok") as read, \
+             patch.object(mod, "create_oauth_bearer_auth") as make_auth:
+            assert mod.create_external_mcp_client(config) is not None
+        read.assert_called_once_with(config.secret_arn)
+        make_auth.assert_called_once_with(token="tok")
+
+    def test_bearer_token_without_secret_refuses(self):
+        from agents.main_agent.integrations import external_mcp_client as mod
+        from apis.shared.tools.models import MCPServerConfig
+
+        config = MCPServerConfig(server_url="https://n8n.example.com/mcp/x", auth_type="bearer-token")
+        assert mod.create_external_mcp_client(config) is None
