@@ -256,10 +256,10 @@ import {
                   </div>
                 }
 
-                <!-- API Key Header (shown for api-key auth) -->
-                @if (form.get('mcpAuthType')?.value === 'api-key') {
+                <!-- Secret ARN (api-key and bearer-token auth) + API Key Header (api-key only) -->
+                @if (form.get('mcpAuthType')?.value === 'api-key' || form.get('mcpAuthType')?.value === 'bearer-token') {
                   <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
+                    <div [class.hidden]="form.get('mcpAuthType')?.value !== 'api-key'">
                       <label for="mcpApiKeyHeader" class="block text-sm/6 font-medium text-gray-700 dark:text-gray-300">
                         API Key Header
                       </label>

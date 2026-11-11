@@ -904,27 +904,79 @@ class TestOAuthPreflightRecovery:
         assert integration.take_pending_consents("carol") == {}
 
 
-class TestStaticBearerToken:
-    """bearer-token auth reads a static token from Secrets Manager."""
 
-    def test_bearer_token_sent_from_secret(self):
-        from agents.main_agent.integrations import external_mcp_client as mod
+class TestStaticSecretAuth:
+    """api-key / bearer-token auth read a static secret from Secrets Manager."""
+
+    ARN = "arn:aws:secretsmanager:us-east-1:1:secret:t"
+
+    def _config(self, **overrides):
         from apis.shared.tools.models import MCPServerConfig
 
-        config = MCPServerConfig(
-            server_url="https://n8n.example.com/mcp/x",
-            auth_type="bearer-token",
-            secret_arn="arn:aws:secretsmanager:us-west-2:1:secret:t",
-        )
-        with patch.object(mod, "_read_static_bearer_token", return_value="tok") as read, \
-             patch.object(mod, "create_oauth_bearer_auth") as make_auth:
-            assert mod.create_external_mcp_client(config) is not None
-        read.assert_called_once_with(config.secret_arn)
-        make_auth.assert_called_once_with(token="tok")
+        return MCPServerConfig(**{
+            "server_url": "https://n8n.example.com/mcp/x",
+            "auth_type": "bearer-token",
+            "secret_arn": self.ARN,
+            **overrides,
+        })
 
-    def test_bearer_token_without_secret_refuses(self):
+    def _header(self, auth, name):
+        request = httpx.Request("POST", "https://n8n.example.com/mcp/x")
+        return next(auth.auth_flow(request)).headers[name]
+
+    def test_bearer_and_api_key_headers_come_from_secret(self):
         from agents.main_agent.integrations import external_mcp_client as mod
-        from apis.shared.tools.models import MCPServerConfig
 
-        config = MCPServerConfig(server_url="https://n8n.example.com/mcp/x", auth_type="bearer-token")
-        assert mod.create_external_mcp_client(config) is None
+        with patch.object(mod, "read_static_secret", return_value="tok") as read:
+            assert self._header(mod._StaticSecretAuth("Authorization", self.ARN, prefix="Bearer "), "Authorization") == "Bearer tok"
+            assert self._header(mod._StaticSecretAuth("x-api-key", self.ARN), "x-api-key") == "tok"
+        read.assert_called_with(self.ARN)
+
+    def test_client_built_for_valid_configs(self):
+        from agents.main_agent.integrations import external_mcp_client as mod
+
+        assert mod.create_external_mcp_client(self._config()) is not None
+        assert mod.create_external_mcp_client(self._config(auth_type="api-key")) is not None
+        assert mod.create_external_mcp_client(self._config(server_url="http://localhost:9000/mcp")) is not None
+
+    def test_refuses_missing_secret_cleartext_url_and_competing_bearer(self):
+        from agents.main_agent.integrations import external_mcp_client as mod
+
+        assert "Secret ARN" in mod.static_auth_config_error(self._config(secret_arn=None))
+        assert "https" in mod.static_auth_config_error(self._config(server_url="http://n8n.example.com/mcp/x"))
+        assert "Authorization" in mod.static_auth_config_error(self._config(), other_bearer=True)
+        assert mod.static_auth_config_error(self._config(auth_type="api-key"), other_bearer=True) is None
+        assert mod.static_auth_config_error(self._config(auth_type="none", secret_arn=None)) is None
+
+        assert mod.create_external_mcp_client(self._config(secret_arn=None)) is None
+        assert mod.create_external_mcp_client(self._config(server_url="http://n8n.example.com/mcp/x")) is None
+        assert mod.create_external_mcp_client(self._config(), oauth_token="jwt") is None
+
+    def test_read_static_secret_formats_region_and_ttl(self):
+        from agents.main_agent.integrations import external_mcp_client as mod
+
+        cases = [
+            (" plain\n", "plain"),
+            ('{"token": "abc", "note": "x"}', "abc"),
+            ('{"anything": "abc"}', "abc"),
+        ]
+        for i, (stored, expected) in enumerate(cases):
+            arn = f"{self.ARN}-{i}"
+            with patch.object(mod.boto3, "client") as client:
+                client.return_value.get_secret_value.return_value = {"SecretString": stored}
+                assert mod.read_static_secret(arn) == expected
+                assert mod.read_static_secret(arn) == expected  # served from cache
+                client.assert_called_once_with("secretsmanager", region_name="us-east-1")
+
+        for bad in ({"SecretBinary": b"x"}, {"SecretString": '{"a": "1", "b": "2"}'}):
+            with patch.object(mod.boto3, "client") as client:
+                client.return_value.get_secret_value.return_value = bad
+                with pytest.raises(ValueError):
+                    mod.read_static_secret(f"{self.ARN}-bad")
+
+        # A rotated secret is re-read once the TTL lapses.
+        arn = f"{self.ARN}-0"
+        with patch.object(mod.boto3, "client") as client, \
+             patch.object(mod.time, "monotonic", return_value=mod.time.monotonic() + mod.STATIC_SECRET_TTL_SECONDS + 1):
+            client.return_value.get_secret_value.return_value = {"SecretString": "rotated"}
+            assert mod.read_static_secret(arn) == "rotated"

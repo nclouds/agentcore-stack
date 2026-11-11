@@ -13,13 +13,15 @@ OAuth Support:
     gates execution.
 """
 
-import functools
+import json
 import logging
 import re
+import time
 from typing import Any, Callable, Iterator, Optional, List, Set
 from urllib.parse import urlparse
 
 import boto3
+import httpx
 
 from mcp.client.streamable_http import streamablehttp_client
 from strands.tools.mcp import MCPClient
@@ -47,14 +49,87 @@ from apis.shared.timestamps import to_iso
 logger = logging.getLogger(__name__)
 
 
-@functools.lru_cache(maxsize=32)
-def _read_static_bearer_token(secret_arn: str) -> str:
-    """Read a static MCP bearer token from Secrets Manager.
+# How long a static MCP secret is reused before Secrets Manager is asked again.
+# Bounds both the per-call cost and how long a rotated secret keeps failing.
+STATIC_SECRET_TTL_SECONDS = 300
 
-    Cached for the life of the process (Secrets Manager is rate-limited and
-    billed per call); a rotated token is picked up on the next cold start.
+_STATIC_AUTH_LABELS = {"api-key": "API Key", "bearer-token": "Bearer Token"}
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_static_secret_cache: dict[str, tuple[float, str]] = {}
+
+
+def read_static_secret(secret_arn: str) -> str:
+    """Read a static MCP credential (bearer token / API key) from Secrets Manager.
+
+    Accepts a plain-string secret, or the console's key/value (JSON) form with
+    a ``token`` key or exactly one key. Blocking: call it off the event loop
+    (the MCP client's background thread, or ``asyncio.to_thread``).
     """
-    return boto3.client("secretsmanager").get_secret_value(SecretId=secret_arn)["SecretString"].strip()
+    cached = _static_secret_cache.get(secret_arn)
+    if cached and time.monotonic() - cached[0] < STATIC_SECRET_TTL_SECONDS:
+        return cached[1]
+
+    # arn:aws:secretsmanager:<region>:<account>:secret:<name> — a secret in
+    # another region is only readable through a client for that region.
+    parts = secret_arn.split(":")
+    region = parts[3] if secret_arn.startswith("arn:") and len(parts) > 3 else None
+    response = boto3.client("secretsmanager", region_name=region or None).get_secret_value(SecretId=secret_arn)
+    value = (response.get("SecretString") or "").strip()
+    if not value:
+        raise ValueError("secret has no string value (binary and empty secrets are not supported)")
+    if value.startswith("{"):
+        try:
+            payload = json.loads(value)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            picked = payload.get("token") or (next(iter(payload.values())) if len(payload) == 1 else None)
+            if not isinstance(picked, str) or not picked.strip():
+                raise ValueError("key/value secret must have a 'token' key or exactly one key")
+            value = picked.strip()
+
+    _static_secret_cache[secret_arn] = (time.monotonic(), value)
+    return value
+
+
+def _auth_type_value(config: MCPServerConfig) -> str:
+    return getattr(config.auth_type, "value", config.auth_type)
+
+
+def static_auth_config_error(config: MCPServerConfig, other_bearer: bool = False) -> Optional[str]:
+    """Why this config's API Key / Bearer Token auth can't be used, else None.
+
+    ``other_bearer``: a forwarded app token or user OAuth token is also in
+    play, which would compete with a static bearer for the Authorization header.
+    """
+    label = _STATIC_AUTH_LABELS.get(_auth_type_value(config))
+    if label is None:
+        return None
+    if not config.secret_arn:
+        return f"{label} authentication needs a Secret ARN."
+    parsed = urlparse(config.server_url)
+    if parsed.scheme != "https" and (parsed.hostname or "") not in _LOOPBACK_HOSTS:
+        return f"{label} authentication requires an https server URL, so the secret is not sent in cleartext."
+    if label == "Bearer Token" and other_bearer:
+        return (
+            "Bearer Token authentication cannot be combined with a forwarded app token "
+            "or a user OAuth connector: both use the Authorization header."
+        )
+    return None
+
+
+class _StaticSecretAuth(httpx.Auth):
+    """Sets one header from a Secrets Manager secret, re-read per request
+    through the TTL cache so a rotated secret reaches already-built clients."""
+
+    def __init__(self, header: str, secret_arn: str, prefix: str = ""):
+        self._header = header
+        self._secret_arn = secret_arn
+        self._prefix = prefix
+
+    def auth_flow(self, request: httpx.Request):
+        request.headers[self._header] = self._prefix + read_static_secret(self._secret_arn)
+        yield request
 
 
 def _aws_hostname(url: str) -> str:
@@ -242,6 +317,16 @@ def create_external_mcp_client(
         # Build list of auth handlers (may combine multiple)
         auth_handlers = []
 
+        # Static credential from Secrets Manager (API key header or bearer).
+        static_error = static_auth_config_error(config, other_bearer=has_provider or has_static_token)
+        if static_error:
+            logger.warning("MCP client construction refused for %s: %s", tool_id, static_error)
+            return None
+        if _auth_type_value(config) == "api-key":
+            auth_handlers.append(_StaticSecretAuth(config.api_key_header or "x-api-key", config.secret_arn))
+        elif _auth_type_value(config) == "bearer-token":
+            auth_handlers.append(_StaticSecretAuth("Authorization", config.secret_arn, prefix="Bearer "))
+
         # OAuth/OIDC bearer auth takes precedence over SigV4. SigV4 and OAuth both
         # use the Authorization header and cannot coexist (SigV4 sets
         # "AWS4-HMAC-SHA256 ...", OAuth sets "Bearer ..."). Lambda Function URLs
@@ -278,20 +363,6 @@ def create_external_mcp_client(
             sigv4_auth = get_sigv4_auth(service=service, region=region)
             auth_handlers.append(sigv4_auth)
             logger.debug(f"  Using AWS IAM SigV4 auth for service: {service}, region: {region}")
-
-        elif config.auth_type == MCPAuthType.API_KEY or config.auth_type == "api-key":
-            # API key authentication would be handled via headers
-            logger.warning("API Key authentication not yet implemented for external MCP")
-            # TODO: Implement API key auth via custom httpx Auth class
-
-        elif config.auth_type == MCPAuthType.BEARER_TOKEN or config.auth_type == "bearer-token":
-            # Static bearer token (not user-specific OAuth), read from the
-            # Secrets Manager secret named by secret_arn (plain-string secret).
-            if not config.secret_arn:
-                logger.warning("bearer-token auth for tool %s has no secret_arn; refusing to connect unauthenticated", tool_id)
-                return None
-            auth_handlers.append(create_oauth_bearer_auth(token=_read_static_bearer_token(config.secret_arn)))
-            logger.debug("  Using static bearer token from Secrets Manager")
 
         # Combine auth handlers
         auth = None
