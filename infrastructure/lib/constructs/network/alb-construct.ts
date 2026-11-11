@@ -100,7 +100,7 @@ export class AlbConstruct extends Construct {
     // an SSE-KMS bucket. `logAccessLogs` writes the bucket policy that
     // grants the regional ELB log-delivery principal.
     this.accessLogBucket = new s3.Bucket(this, 'AlbAccessLogBucket', {
-      bucketName: getResourceName(config, 'alb-access-logs'),
+      bucketName: getResourceName(config, 'alb-access-logs', config.awsAccount),
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
