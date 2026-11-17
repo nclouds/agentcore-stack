@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 
 export interface CognitoConfig {
-  domainPrefix?: string;       // Custom Cognito domain prefix (defaults to projectPrefix)
+  domainPrefix?: string;       // Custom Cognito domain prefix (defaults to ${projectPrefix}-${awsAccount})
   callbackUrls?: string[];     // Additional callback URLs beyond auto-derived
   logoutUrls?: string[];       // Additional logout URLs beyond auto-derived
   // Extra federated IdPs the BFF client should accept beyond the built-in
@@ -438,7 +438,7 @@ export function loadConfig(scope: cdk.App): AppConfig {
     cognito: {
       domainPrefix: process.env.CDK_COGNITO_DOMAIN_PREFIX
         || scope.node.tryGetContext('cognito')?.domainPrefix
-        || projectPrefix,
+        || `${projectPrefix}-${awsAccount}`,
       callbackUrls: process.env.CDK_COGNITO_CALLBACK_URLS?.split(',')
         .map((s) => s.trim()).filter(Boolean)
         || scope.node.tryGetContext('cognito')?.callbackUrls,

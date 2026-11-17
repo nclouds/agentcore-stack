@@ -52,7 +52,7 @@ export class SharedConversationsConstruct extends Construct {
     // as long as its DynamoDB row and is deleted explicitly on revoke /
     // session cleanup. Age-based reaping would break live shares.
     this.bucket = new s3.Bucket(this, 'SharedConversationsBucket', {
-      bucketName: getResourceName(config, 'shared-conversations'),
+      bucketName: getResourceName(config, 'shared-conversations', config.awsAccount),
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,

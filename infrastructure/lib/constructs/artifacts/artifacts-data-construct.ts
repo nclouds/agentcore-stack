@@ -80,7 +80,7 @@ export class ArtifactsDataConstruct extends Construct {
     });
 
     this.bucket = new s3.Bucket(this, 'ArtifactsContentBucket', {
-      bucketName: getResourceName(config, 'artifacts-content'),
+      bucketName: getResourceName(config, 'artifacts-content', config.awsAccount),
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,

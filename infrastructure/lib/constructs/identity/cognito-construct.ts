@@ -129,7 +129,7 @@ export class CognitoConstruct extends Construct {
 
     this.cognitoDomain = this.userPool.addDomain('CognitoDomain', {
       cognitoDomain: {
-        domainPrefix: config.cognito.domainPrefix || config.projectPrefix,
+        domainPrefix: config.cognito.domainPrefix || `${config.projectPrefix}-${config.awsAccount}`,
       },
     });
 
