@@ -127,9 +127,13 @@ export class CognitoConstruct extends Construct {
       },
     );
 
+    const defaultPrefix = (config.environment === 'development' || config.environment === 'dev')
+      ? config.projectPrefix
+      : `${config.projectPrefix}-${config.awsAccount}`;
+
     this.cognitoDomain = this.userPool.addDomain('CognitoDomain', {
       cognitoDomain: {
-        domainPrefix: config.cognito.domainPrefix || `${config.projectPrefix}-${config.awsAccount}`,
+        domainPrefix: config.cognito.domainPrefix || defaultPrefix,
       },
     });
 
