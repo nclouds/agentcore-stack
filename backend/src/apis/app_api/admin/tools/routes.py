@@ -400,6 +400,8 @@ async def admin_discover_mcp_tools(
     """
     from agents.main_agent.integrations.external_mcp_client import (
         create_external_mcp_client,
+        read_static_secret,
+        static_auth_config_error,
     )
 
     # An OAuth (3LO) gated server is discovered using the admin's *own* vaulted
@@ -470,9 +472,23 @@ async def admin_discover_mcp_tools(
             )
         oauth_token = admin.raw_token
 
-    client = create_external_mcp_client(
-        config=request.to_config(), oauth_token=oauth_token
-    )
+    config = request.to_config()
+    # Name the real cause for API Key / Bearer Token problems instead of the
+    # generic "check the server URL" below, and read the secret off the loop.
+    static_error = static_auth_config_error(config, other_bearer=bool(oauth_token))
+    if static_error:
+        raise HTTPException(status_code=400, detail=static_error)
+    if config.auth_type in ("api-key", "bearer-token"):
+        try:
+            await asyncio.to_thread(read_static_secret, config.secret_arn)
+        except Exception as exc:
+            logger.warning("MCP discovery could not read secret %s: %s", config.secret_arn, exc)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not read the secret for this server ({type(exc).__name__}): {exc}",
+            )
+
+    client = create_external_mcp_client(config=config, oauth_token=oauth_token)
     if client is None:
         raise HTTPException(
             status_code=400,
