@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 
 export interface CognitoConfig {
-  domainPrefix?: string;       // Custom Cognito domain prefix (defaults to ${projectPrefix}-${awsAccount})
+  domainPrefix?: string;       // Custom Cognito domain prefix (defaults to projectPrefix in dev, ${projectPrefix}-${awsAccount} otherwise)
   callbackUrls?: string[];     // Additional callback URLs beyond auto-derived
   logoutUrls?: string[];       // Additional logout URLs beyond auto-derived
   // Extra federated IdPs the BFF client should accept beyond the built-in
@@ -14,6 +14,7 @@ export interface CognitoConfig {
 
 export interface AppConfig {
   projectPrefix: string;
+  environment?: string;        // Deployment environment name (e.g. 'development', 'production')
   awsAccount: string;
   awsRegion: string;
   production: boolean; // Production environment flag (default: true)
@@ -411,8 +412,25 @@ export function loadConfig(scope: cdk.App): AppConfig {
   // Load app version from environment variable or CDK context
   const appVersion = process.env.CDK_APP_VERSION || scope.node.tryGetContext('appVersion') || 'unknown';
 
+  // Deployment environment detection ('development' vs other environments like 'production')
+  const environment = (
+    process.env.CDK_ENVIRONMENT
+    || process.env.ENVIRONMENT
+    || (scope.node.tryGetContext('environment') as string | undefined)
+    || (process.env.GITHUB_REF && process.env.GITHUB_REF !== 'refs/heads/main' ? 'development' : undefined)
+    || (parseBooleanEnv(process.env.CDK_PRODUCTION) === false ? 'development' : undefined)
+    || (scope.node.tryGetContext('production') === false ? 'development' : undefined)
+    || 'production'
+  ).toLowerCase();
+
+  const isDevelopment = environment === 'development' || environment === 'dev';
+  const defaultCognitoDomainPrefix = isDevelopment
+    ? projectPrefix
+    : `${projectPrefix}-${awsAccount}`;
+
   const config: AppConfig = {
     projectPrefix,
+    environment,
     appVersion,
     awsAccount,
     awsRegion,
@@ -438,7 +456,7 @@ export function loadConfig(scope: cdk.App): AppConfig {
     cognito: {
       domainPrefix: process.env.CDK_COGNITO_DOMAIN_PREFIX
         || scope.node.tryGetContext('cognito')?.domainPrefix
-        || `${projectPrefix}-${awsAccount}`,
+        || defaultCognitoDomainPrefix,
       callbackUrls: process.env.CDK_COGNITO_CALLBACK_URLS?.split(',')
         .map((s) => s.trim()).filter(Boolean)
         || scope.node.tryGetContext('cognito')?.callbackUrls,
@@ -628,6 +646,10 @@ export function loadConfig(scope: cdk.App): AppConfig {
   // Log loaded configuration for debugging
   console.log('📋 Loaded CDK Configuration:');
   console.log(`   Project Prefix: ${config.projectPrefix}`);
+  if (config.environment) {
+    console.log(`   Environment: ${config.environment}`);
+  }
+  console.log(`   Cognito Domain Prefix: ${config.cognito.domainPrefix}`);
   console.log(`   AWS Region: ${config.awsRegion}`);
   console.log(`   Production: ${config.production}`);
   console.log(`   Retain Data on Delete: ${config.retainDataOnDelete}`);
