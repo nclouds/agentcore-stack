@@ -34,6 +34,9 @@ export class CognitoConstruct extends Construct {
   public readonly bffAppClient: cognito.UserPoolClient;
   public readonly bffAppClientSecret: secretsmanager.Secret;
   public readonly cognitoDomain: cognito.UserPoolDomain;
+  public readonly n8nAppClient?: cognito.UserPoolClient;
+  public readonly n8nAppClientSecret?: secretsmanager.Secret;
+  public readonly entraIdp?: cognito.UserPoolIdentityProviderOidc;
 
   constructor(scope: Construct, id: string, props: CognitoConstructProps) {
     super(scope, id);
@@ -73,6 +76,43 @@ export class CognitoConstruct extends Construct {
       removalPolicy: getRemovalPolicy(config),
     });
 
+    // Entra ID OIDC Identity Provider (dev infrastructure or explicit config)
+    const entraConfig = config.cognito.entraId;
+    const hasEntraConfig = Boolean(
+      entraConfig?.clientId &&
+      entraConfig?.clientSecret &&
+      (entraConfig?.tenantId || entraConfig?.issuerUrl),
+    );
+
+    if (hasEntraConfig) {
+      const issuer =
+        entraConfig!.issuerUrl ||
+        `https://login.microsoftonline.com/${entraConfig!.tenantId}/v2.0`;
+      const providerName = entraConfig!.providerName || 'ms-entra-id';
+
+      this.entraIdp = new cognito.UserPoolIdentityProviderOidc(
+        this,
+        'EntraOidcProvider',
+        {
+          userPool: this.userPool,
+          name: providerName,
+          clientId: entraConfig!.clientId!,
+          clientSecret: entraConfig!.clientSecret!,
+          issuerUrl: issuer,
+          scopes: ['openid', 'profile', 'email'],
+          attributeRequestMethod: cognito.OidcAttributeRequestMethod.GET,
+          attributeMapping: {
+            email: cognito.ProviderAttribute.other('email'),
+            givenName: cognito.ProviderAttribute.other('given_name'),
+            familyName: cognito.ProviderAttribute.other('family_name'),
+            custom: {
+              provider_sub: cognito.ProviderAttribute.other('sub'),
+            },
+          },
+        },
+      );
+    }
+
     const bffCallbackUrls = config.domainName
       ? [`https://${config.domainName}/api/auth/callback`]
       : ['http://localhost:8000/auth/callback'];
@@ -97,6 +137,15 @@ export class CognitoConstruct extends Construct {
           ),
       ];
 
+    if (this.entraIdp) {
+      const providerName = entraConfig?.providerName || 'ms-entra-id';
+      if (!bffSupportedIdentityProviders.some((p) => p.name === providerName)) {
+        bffSupportedIdentityProviders.push(
+          cognito.UserPoolClientIdentityProvider.custom(providerName),
+        );
+      }
+    }
+
     this.bffAppClient = this.userPool.addClient('CognitoBFFAppClient', {
       userPoolClientName: getResourceName(config, 'bff-app-client'),
       generateSecret: true,
@@ -115,6 +164,10 @@ export class CognitoConstruct extends Construct {
       supportedIdentityProviders: bffSupportedIdentityProviders,
     });
 
+    if (this.entraIdp) {
+      this.bffAppClient.node.addDependency(this.entraIdp);
+    }
+
     this.bffAppClientSecret = new secretsmanager.Secret(
       this,
       'CognitoBFFAppClientSecret',
@@ -126,6 +179,87 @@ export class CognitoConstruct extends Construct {
         removalPolicy: getRemovalPolicy(config),
       },
     );
+
+    // Dedicated App Client for n8n ALB authentication
+    if (config.cognito.n8nAlbAuth?.enabled) {
+      const n8nCallbackUrls = config.cognito.n8nAlbAuth.callbackUrls?.length
+        ? config.cognito.n8nAlbAuth.callbackUrls
+        : config.domainName
+          ? [`https://n8n.${config.domainName}/oauth2/idpresponse`]
+          : ['https://localhost:5678/oauth2/idpresponse'];
+
+      const n8nLogoutUrls = config.cognito.n8nAlbAuth.logoutUrls?.length
+        ? config.cognito.n8nAlbAuth.logoutUrls
+        : config.domainName
+          ? [`https://n8n.${config.domainName}`]
+          : ['https://localhost:5678'];
+
+      const n8nSupportedIdps: cognito.UserPoolClientIdentityProvider[] = [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+        ...(config.cognito.supportedIdentityProviders ?? [])
+          .filter((name) => name !== 'COGNITO')
+          .map((name) =>
+            cognito.UserPoolClientIdentityProvider.custom(name),
+          ),
+      ];
+
+      if (this.entraIdp) {
+        const providerName = entraConfig?.providerName || 'ms-entra-id';
+        if (!n8nSupportedIdps.some((p) => p.name === providerName)) {
+          n8nSupportedIdps.push(
+            cognito.UserPoolClientIdentityProvider.custom(providerName),
+          );
+        }
+      }
+
+      this.n8nAppClient = this.userPool.addClient('CognitoN8nAppClient', {
+        userPoolClientName: getResourceName(config, 'n8n-alb-client'),
+        generateSecret: true,
+        authFlows: { userSrp: false, custom: false },
+        oAuth: {
+          flows: { authorizationCodeGrant: true },
+          scopes: [
+            cognito.OAuthScope.OPENID,
+            cognito.OAuthScope.PROFILE,
+            cognito.OAuthScope.EMAIL,
+          ],
+          callbackUrls: n8nCallbackUrls,
+          logoutUrls: n8nLogoutUrls,
+        },
+        preventUserExistenceErrors: true,
+        supportedIdentityProviders: n8nSupportedIdps,
+      });
+
+      if (this.entraIdp) {
+        this.n8nAppClient.node.addDependency(this.entraIdp);
+      }
+
+      this.n8nAppClientSecret = new secretsmanager.Secret(
+        this,
+        'CognitoN8nAppClientSecret',
+        {
+          secretName: getResourceName(config, 'cognito-n8n-alb-client-secret'),
+          description:
+            'Client secret for the Cognito n8n ALB app client',
+          secretStringValue: this.n8nAppClient.userPoolClientSecret,
+          removalPolicy: getRemovalPolicy(config),
+        },
+      );
+
+      new ssm.StringParameter(this, 'CognitoN8nAppClientIdParameter', {
+        parameterName: `/${config.projectPrefix}/auth/cognito/n8n-app-client-id`,
+        stringValue: this.n8nAppClient.userPoolClientId,
+        description: 'Cognito n8n ALB app client ID',
+        tier: ssm.ParameterTier.STANDARD,
+      });
+
+      new ssm.StringParameter(this, 'CognitoN8nAppClientSecretArnParameter', {
+        parameterName: `/${config.projectPrefix}/auth/cognito/n8n-app-client-secret-arn`,
+        stringValue: this.n8nAppClientSecret.secretArn,
+        description: 'Cognito n8n ALB app client secret ARN',
+        tier: ssm.ParameterTier.STANDARD,
+      });
+    }
 
     const defaultPrefix = (config.environment === 'development' || config.environment === 'dev')
       ? config.projectPrefix

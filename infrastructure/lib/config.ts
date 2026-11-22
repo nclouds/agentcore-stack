@@ -1,5 +1,19 @@
 import * as cdk from 'aws-cdk-lib';
 
+export interface EntraIdpConfig {
+  clientId?: string;
+  clientSecret?: string;
+  tenantId?: string;
+  issuerUrl?: string; // Optional override, defaults to https://login.microsoftonline.com/${tenantId}/v2.0
+  providerName?: string; // Optional override, defaults to 'ms-entra-id'
+}
+
+export interface N8nAlbAuthConfig {
+  enabled?: boolean;
+  callbackUrls?: string[];
+  logoutUrls?: string[];
+}
+
 export interface CognitoConfig {
   domainPrefix?: string;       // Custom Cognito domain prefix (defaults to projectPrefix in dev, ${projectPrefix}-${awsAccount} otherwise)
   callbackUrls?: string[];     // Additional callback URLs beyond auto-derived
@@ -10,6 +24,8 @@ export interface CognitoConfig {
   // COGNITO is always included; entries here are added on top.
   supportedIdentityProviders?: string[];
   passwordMinLength?: number;  // Override default 8
+  entraId?: EntraIdpConfig;
+  n8nAlbAuth?: N8nAlbAuthConfig;
 }
 
 export interface AppConfig {
@@ -469,6 +485,36 @@ export function loadConfig(scope: cdk.App): AppConfig {
       passwordMinLength: parseIntEnv(process.env.CDK_COGNITO_PASSWORD_MIN_LENGTH)
         || scope.node.tryGetContext('cognito')?.passwordMinLength
         || 8,
+      entraId: {
+        clientId: process.env.CDK_ENTRA_CLIENT_ID
+          || scope.node.tryGetContext('cognito')?.entraId?.clientId
+          || scope.node.tryGetContext('entraClientId'),
+        clientSecret: process.env.CDK_ENTRA_CLIENT_SECRET
+          || scope.node.tryGetContext('cognito')?.entraId?.clientSecret
+          || scope.node.tryGetContext('entraClientSecret'),
+        tenantId: process.env.CDK_ENTRA_TENANT_ID
+          || scope.node.tryGetContext('cognito')?.entraId?.tenantId
+          || scope.node.tryGetContext('entraTenantId'),
+        issuerUrl: process.env.CDK_ENTRA_ISSUER_URL
+          || scope.node.tryGetContext('cognito')?.entraId?.issuerUrl,
+        providerName: process.env.CDK_ENTRA_PROVIDER_NAME
+          || scope.node.tryGetContext('cognito')?.entraId?.providerName
+          || 'ms-entra-id',
+      },
+      n8nAlbAuth: {
+        enabled: parseBooleanEnv(process.env.CDK_N8N_ALB_AUTH_ENABLED)
+          ?? scope.node.tryGetContext('cognito')?.n8nAlbAuth?.enabled
+          ?? scope.node.tryGetContext('n8nAlbAuth')?.enabled
+          ?? Boolean(process.env.CDK_N8N_CALLBACK_URL || process.env.CDK_N8N_CALLBACK_URLS),
+        callbackUrls: process.env.CDK_N8N_CALLBACK_URLS?.split(',')
+          .map((s) => s.trim()).filter(Boolean)
+          || (process.env.CDK_N8N_CALLBACK_URL ? [process.env.CDK_N8N_CALLBACK_URL.trim()] : undefined)
+          || scope.node.tryGetContext('cognito')?.n8nAlbAuth?.callbackUrls,
+        logoutUrls: process.env.CDK_N8N_LOGOUT_URLS?.split(',')
+          .map((s) => s.trim()).filter(Boolean)
+          || (process.env.CDK_N8N_LOGOUT_URL ? [process.env.CDK_N8N_LOGOUT_URL.trim()] : undefined)
+          || scope.node.tryGetContext('cognito')?.n8nAlbAuth?.logoutUrls,
+      },
     },
     frontend: {
       certificateArn: process.env.CDK_FRONTEND_CERTIFICATE_ARN || scope.node.tryGetContext('frontend')?.certificateArn,
@@ -650,6 +696,12 @@ export function loadConfig(scope: cdk.App): AppConfig {
     console.log(`   Environment: ${config.environment}`);
   }
   console.log(`   Cognito Domain Prefix: ${config.cognito.domainPrefix}`);
+  if (config.cognito.entraId?.clientId) {
+    console.log(`   Cognito Entra ID OIDC: Configured (Provider: ${config.cognito.entraId.providerName || 'ms-entra-id'})`);
+  }
+  if (config.cognito.n8nAlbAuth?.enabled) {
+    console.log(`   Cognito n8n ALB Auth: Enabled`);
+  }
   console.log(`   AWS Region: ${config.awsRegion}`);
   console.log(`   Production: ${config.production}`);
   console.log(`   Retain Data on Delete: ${config.retainDataOnDelete}`);

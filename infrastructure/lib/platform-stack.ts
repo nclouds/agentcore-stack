@@ -151,6 +151,8 @@ export class PlatformStack extends cdk.Stack {
   public readonly bffAppClient: cognito.IUserPoolClient;
   public readonly bffAppClientSecret: secretsmanager.ISecret;
   public readonly cognitoDomain: cognito.UserPoolDomain;
+  public readonly n8nAppClient?: cognito.UserPoolClient;
+  public readonly n8nAppClientSecret?: secretsmanager.ISecret;
 
   // ── Data tables
   public readonly oidcStateTable: dynamodb.ITable;
@@ -318,6 +320,27 @@ export class PlatformStack extends cdk.Stack {
     this.bffAppClient = cognitoConstruct.bffAppClient;
     this.bffAppClientSecret = cognitoConstruct.bffAppClientSecret;
     this.cognitoDomain = cognitoConstruct.cognitoDomain;
+    this.n8nAppClient = cognitoConstruct.n8nAppClient;
+    this.n8nAppClientSecret = cognitoConstruct.n8nAppClientSecret;
+
+    if (this.n8nAppClient && this.n8nAppClientSecret) {
+      new cdk.CfnOutput(this, 'N8nAlbAppClientId', {
+        value: this.n8nAppClient.userPoolClientId,
+        description: 'Cognito App Client ID for n8n ALB authentication',
+      });
+      new cdk.CfnOutput(this, 'N8nAlbAppClientSecretArn', {
+        value: this.n8nAppClientSecret.secretArn,
+        description: 'Secrets Manager ARN for n8n ALB App Client Secret',
+      });
+    }
+
+    if (cognitoConstruct.entraIdp) {
+      const entraRedirectUri = `https://${this.cognitoDomain.domainName}.auth.${this._config.awsRegion}.amazoncognito.com/oauth2/idpresponse`;
+      new cdk.CfnOutput(this, 'CognitoEntraRedirectUri', {
+        value: entraRedirectUri,
+        description: 'Redirect URI to register in Microsoft Entra ID App Registration',
+      });
+    }
 
     // MCP user-identity forwarding — optional Cognito Pre-Token-Generation v2
     // Lambda that copies configured user attributes into access-token claims so
