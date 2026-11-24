@@ -161,6 +161,18 @@ export function createRuntimeExecutionRole(
     ],
   }));
 
+  // ── External MCP Secrets (Bearer Token / API Key static credentials) ──
+  // External MCP clients connect with static bearer tokens or API keys
+  // fetched from Secrets Manager (agents/main_agent/integrations/external_mcp_client.py).
+  role.addToPolicy(new iam.PolicyStatement({
+    sid: 'ExternalMCPSecretsRead',
+    effect: iam.Effect.ALLOW,
+    actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+    resources: [
+      `arn:aws:secretsmanager:${config.awsRegion}:${config.awsAccount}:secret:*`
+    ],
+  }));
+
   // ── AgentCore Identity OAuth vault secrets ──
   role.addToPolicy(new iam.PolicyStatement({
     sid: 'AgentCoreIdentityOAuthSecrets',
@@ -300,7 +312,7 @@ export function createRuntimeExecutionRole(
     sid: 'MemorySpacesTableReadWrite',
     effect: iam.Effect.ALLOW,
     actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem',
-              'dynamodb:Query', 'dynamodb:BatchWriteItem'],
+      'dynamodb:Query', 'dynamodb:BatchWriteItem'],
     resources: [memorySpacesTableArn, `${memorySpacesTableArn}/index/*`],
   }));
 
@@ -311,7 +323,7 @@ export function createRuntimeExecutionRole(
     sid: 'S3VectorsQueryAccess',
     effect: iam.Effect.ALLOW,
     actions: ['s3vectors:GetVector', 's3vectors:GetVectors', 's3vectors:ListVectors',
-              's3vectors:QueryVectors', 's3vectors:GetIndex', 's3vectors:ListIndexes'],
+      's3vectors:QueryVectors', 's3vectors:GetIndex', 's3vectors:ListIndexes'],
     resources: [
       `arn:aws:s3vectors:${config.awsRegion}:${config.awsAccount}:bucket/${vectorBucketName}`,
       `arn:aws:s3vectors:${config.awsRegion}:${config.awsAccount}:bucket/${vectorBucketName}/index/${vectorIndexName}`,

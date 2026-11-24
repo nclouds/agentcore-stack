@@ -222,6 +222,22 @@ export function grantAppApiPermissions(props: AppApiIamGrantsProps): void {
     }),
   );
 
+  // ── External MCP Secrets (Bearer Token / API Key static credentials) ──
+  // External MCP servers registered via the admin UI or catalog (e.g. n8n)
+  // use static bearer tokens or API keys stored in Secrets Manager.
+  // The app-api task discovers tools and validates credentials on connect
+  // (apis/app_api/admin/tools/routes.py).
+  taskRole.addToPrincipalPolicy(
+    new iam.PolicyStatement({
+      sid: 'ExternalMCPSecretsRead',
+      effect: iam.Effect.ALLOW,
+      actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+      resources: [
+        `arn:aws:secretsmanager:${config.awsRegion}:${config.awsAccount}:secret:*`
+      ],
+    }),
+  );
+
   // The admin auth-providers endpoints (POST/DELETE /admin/auth-providers)
   // read AND write the JSON bag of provider client secrets: the repository
   // rewrites the whole secret via PutSecretValue on both add and remove
@@ -319,7 +335,7 @@ export function grantAppApiPermissions(props: AppApiIamGrantsProps): void {
       sid: 'ArtifactsTableReadWrite',
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem',
-                'dynamodb:DeleteItem', 'dynamodb:Query'],
+        'dynamodb:DeleteItem', 'dynamodb:Query'],
       resources: [artifactsTableArn, `${artifactsTableArn}/index/*`],
     }),
   );
@@ -363,7 +379,7 @@ export function grantAppApiPermissions(props: AppApiIamGrantsProps): void {
       sid: 'MemorySpacesTableReadWrite',
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem',
-                'dynamodb:Query', 'dynamodb:BatchWriteItem'],
+        'dynamodb:Query', 'dynamodb:BatchWriteItem'],
       resources: [memorySpacesTableArn, `${memorySpacesTableArn}/index/*`],
     }),
   );
@@ -383,10 +399,10 @@ export function grantAppApiPermissions(props: AppApiIamGrantsProps): void {
       sid: 'FineTuningTablesAccess',
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem',
-                'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:Scan',
-                'dynamodb:BatchGetItem', 'dynamodb:BatchWriteItem'],
+        'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:Scan',
+        'dynamodb:BatchGetItem', 'dynamodb:BatchWriteItem'],
       resources: [ftJobsTableArn, `${ftJobsTableArn}/index/*`,
-                  ftAccessTableArn, `${ftAccessTableArn}/index/*`],
+        ftAccessTableArn, `${ftAccessTableArn}/index/*`],
     }),
   );
   taskRole.addToPrincipalPolicy(
@@ -394,7 +410,7 @@ export function grantAppApiPermissions(props: AppApiIamGrantsProps): void {
       sid: 'FineTuningBucketAccess',
       effect: iam.Effect.ALLOW,
       actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject',
-                's3:ListBucket', 's3:GetBucketLocation'],
+        's3:ListBucket', 's3:GetBucketLocation'],
       resources: [ftDataBucketArn, `${ftDataBucketArn}/*`],
     }),
   );
@@ -403,11 +419,11 @@ export function grantAppApiPermissions(props: AppApiIamGrantsProps): void {
       sid: 'SageMakerJobManagement',
       effect: iam.Effect.ALLOW,
       actions: ['sagemaker:CreateTrainingJob', 'sagemaker:DescribeTrainingJob',
-                'sagemaker:StopTrainingJob', 'sagemaker:ListTrainingJobs',
-                'sagemaker:CreateTransformJob', 'sagemaker:DescribeTransformJob',
-                'sagemaker:StopTransformJob', 'sagemaker:ListTransformJobs'],
+        'sagemaker:StopTrainingJob', 'sagemaker:ListTrainingJobs',
+        'sagemaker:CreateTransformJob', 'sagemaker:DescribeTransformJob',
+        'sagemaker:StopTransformJob', 'sagemaker:ListTransformJobs'],
       resources: [`arn:aws:sagemaker:${config.awsRegion}:${config.awsAccount}:training-job/${config.projectPrefix}-*`,
-                  `arn:aws:sagemaker:${config.awsRegion}:${config.awsAccount}:transform-job/${config.projectPrefix}-*`],
+      `arn:aws:sagemaker:${config.awsRegion}:${config.awsAccount}:transform-job/${config.projectPrefix}-*`],
     }),
   );
   taskRole.addToPrincipalPolicy(
@@ -639,9 +655,9 @@ export function grantAppApiPermissions(props: AppApiIamGrantsProps): void {
       sid: 'S3VectorsQueryAccess',
       effect: iam.Effect.ALLOW,
       actions: ['s3vectors:GetVector', 's3vectors:GetVectors',
-                's3vectors:ListVectors', 's3vectors:QueryVectors',
-                's3vectors:GetIndex', 's3vectors:ListIndexes',
-                's3vectors:DeleteVectors'],
+        's3vectors:ListVectors', 's3vectors:QueryVectors',
+        's3vectors:GetIndex', 's3vectors:ListIndexes',
+        's3vectors:DeleteVectors'],
       resources: [
         `arn:aws:s3vectors:${config.awsRegion}:${config.awsAccount}:bucket/${vectorBucketName}`,
         `arn:aws:s3vectors:${config.awsRegion}:${config.awsAccount}:bucket/${vectorBucketName}/index/${vectorIndexName}`,
